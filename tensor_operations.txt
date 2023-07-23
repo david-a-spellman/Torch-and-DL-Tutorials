@@ -1,0 +1,63 @@
+torch.rand ()
+creates a tensor that is randomly initialized
+torch.ones ()
+one that has all 1s
+torch.zeros ()
+all zeros
+torch.empty ()
+uninitialized tensor
+These methods take an unlimited number of dimensions as the arguments
+The number passed in determines how many units in length that particular dimension is
+or the size of that dimension
+usual add and subtraction operators can be used to do element wise addition or subtraction
+or torch.add (a, b) or torch.subtract (a, b)
+functions such as a.add_ (b) do an in place operation where the tensor being operated on is directly modified
+
+tensors can be sliced just like arrays in numpy or dataframes in pandas
+x = torch.random (10, 10)
+get last column or y conponent
+x [:, 9]
+get last row instead, or last x conponent
+x [9, :]
+get a single value in both last row and last column
+x [9, 9]
+
+Tensors can also be reshaped just like numpy arrays
+x = torch.random (4, 4)
+can be done with view function
+y = x.view (16)
+y will contain the values of x, but in one dimension instead of two
+so y is now a 16 conponent vector instead of a four by four matrix
+The view function only works if the number of elements matches
+y = x.view (2, 8)
+is also valid
+y = x.view (3, 5)
+is invalid since 3 * 5 does not equal 16, the number of elements in the original x tensor
+
+Getting a torch tensor from a numpy array
+a = torch.ones (5)
+b = a.numpy ()
+Now the object reffered to as b, is a numpy array instead of a torch tensor
+specifically b is a numpy ndarray
+Keep in mind when transfering between torch and numpy this way, memory will be shared between the numpy and torch refferences b and a
+So if you modify the data of one, you will also modify the data of the other, since it does not produce a deep coppy
+To go from numpy to torch
+a = np.ones (5)
+b = torch.from_numpy (a)
+works the same way, not a deep copy
+the default datatype will be a 64 byte float, but the datatype used with torch can also be specified when transfering to torch
+The datatype can be passed in as a second parameter after the numpy array being transfered from
+Remember that with these two methods memory is allways shared
+
+You can also control whether these operations are performed on the GPU if it is available with simple logic
+If the statement is true then you can create your tensor on the GPU
+if torch.cuda.is_available ():
+	device = torch.device ("cuda")
+	x = torch.ones (5, device = device)
+The named "device" parameter can then be used after all dimensions are specified in order to control whether the tensor is on GPU or not
+A tensor can also be moved to the GPU after its creation
+y = torch.ones (5)
+if torch.cuda.is_available ():
+	device = torch.device ("cuda")
+	y = y.to (device)
+Then if you do z = x + y it might be performed on the GPU and will be much faster

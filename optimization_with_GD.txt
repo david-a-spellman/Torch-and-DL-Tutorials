@@ -1,0 +1,43 @@
+#Using numpy to implement gradient descent optimization from skratch
+#Using linear regression
+
+import numpy as np
+
+x = np.array ([1, 2, 3, 4], dtype = np.float32)
+y = np.array ([2, 4, 6, 8], dtype = np.float32)
+# initialize w
+w = 0.0
+# Now manually calculate the prediction, loss, and gradients
+# Forward pass for linear regression
+def forward (x):
+	return x * w
+
+# loss function for linear regression, mse
+def loss (y, y_pred):
+	return ((y_pred - y)**2).mean ()
+
+# Calculate the gradients using the derivitive / chain rule
+def gradient (x, y, y_pred):
+	return np.dot (2 * x, y_pred - y).mean ()
+
+# Now to do an update step for optimization we need to define some other parameters
+# learning rate
+lr = 0.001
+# learning itterations
+num_i = 100
+# Now for training loop
+for epoch in range (num_i):
+	# pred forward pass
+	y_pred = forward (x)
+	# get loss
+	l = loss (y, y_pred)
+	# get gradient
+	dw = gradient (x, y, y_pred)
+	# Update the weights using the gradient descent formula
+	# Move in the opposite direction of the gradient using the learning rate to determine how far to move
+	w -= (lr * dw)
+	print (str ("Epoch " + str (epoch) + " loss: " + str (l) + " prediction: " + str (y_pred)))
+print (str ("Final prediction: " + str (forward (x))))
+
+# Every step increases the weights and decreases the loss as GD runs
+

@@ -1,0 +1,52 @@
+torch gradients
+
+torch provides the autograd package
+x = torch.randn (3, requires_gradient = True)
+y = x + 2
+When doing computations such as this torch produces a computational graph similar to an AST tree a compiler would produce if gradients is set to "True" on an object
+however this is called a computation graph
+If you specify that the calculation is as part of a gradient torch will store this and create a function that will be stored for back propigation
+In this example y will have both a gradient function attribute and a back propigation function attribute
+If y is printed these attributes will be seen
+With this example since it was an add y will have an add_backward attribute for back propigation
+z = y * y * 2
+z's attributes will show that two multiplications were performed to produce it
+z = z.mean ()
+will show that the mean of z was used to compute a new value for z
+vector of gradients v
+v = torch.tensor ([0.2, 0.05, 0.73], dtype = torch.float32)
+z.backward (v)
+final gradient is computed by using jacobian matrix of derivitives obtained from z, and then multiplying by the gradients provided with v
+print (x.grad)
+will output the final gradient
+The jacobian matrix of z's derivitives is multiplied by the gradient vector v to get the final gradient
+Uses the chain rule and that is why the matrix must be multiplied by the gradient vector
+the final gradient scalar can be considered a jacobian vector product
+
+How to turn off gradient tracking during parts of training loop where calculations are not gradient based
+first way using requires gradient function
+x.requires_gradient_ (False)
+set requires gradient function to false
+Option 2 is to call 
+x.detach ()
+produces a second tensor
+This second tensor does not have gradients attached
+Third option is perhaps the cleanest option
+with torch.no_grad ():
+	# Put code inside this block that does not use gradients
+with functions such as
+x.requires_grad (False)
+The trailing '_' means that the function will modify the object it is invoked on in place
+If you print x you will see that the trailing grad attribute is False
+For the second option you will see that the new object also does not require the gradients
+
+weights = torch.ones (4, requires_grad = True)
+optimizing using stoichastic gradient descent
+optimizer = torch.optim.SGD ()
+optimizer.step ()
+optimizer.zero_grad ()
+Remember that when doing optimization steps the weight vector must have 'requires_grad' set to True
+Then gradients can be calculated with the .backward function
+z.backward ()
+Once done with an optimization step the gradients must be emptied for the next step
+weights.grad.zero ()
