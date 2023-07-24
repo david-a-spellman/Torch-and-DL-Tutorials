@@ -1,12 +1,20 @@
-# Example using classification of 10 types of objects in images
-# With convolutional neural network
-# Using torch
+# Example of using transfer learning with a CNN to get better results with less data and less training time/resources
+# Going to simply fine tune the last few layers of an already trained CNN
+# Example using the resnet 18 CNN
+# Can classify objects into 1000 categories, and has 18 layers
+# Going to just train the final layer
+# This will fine-tune the network for a specific task
 
 import torch
 import torch.nn as nn
+import numpy as np
 import torchvision
-import torchvision.transforms as transforms
+import torch.optim as optim
+from torch.optim import lr_scheduler
+from torchvision import datasets, models, transforms
 import matplotlib.pyplot as plt
+import time
+import copy
 import os
 
 device = torch.device ("cuda" if torch.cuda.is_available () else "cpu")
@@ -15,7 +23,7 @@ device = torch.device ("cuda" if torch.cuda.is_available () else "cpu")
 input_size = (32 * 32)
 filter = 5
 pool = 2
-number_of_classes = 10
+number_of_classes = 2
 epochs = 10
 batch_size = 4
 lr = 0.0001
@@ -27,7 +35,7 @@ lr = 0.0001
 
 transform = transforms.Compose ([transforms.ToTensor (), transforms.Normalize ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-train_dataset = torchvision.datasets.CIFAR10 (root = "./data", train = True,
+train_dataset = datasets.ImageFolder (root = "./data", train = True,
 	transform = transform, download = False)
 
 test_dataset = torchvision.datasets.CIFAR10 (root = "./data", train = False,
@@ -123,7 +131,7 @@ with torch.no_grad ():
 		print (str ("Final class " + str (i) + " testing accuracy = " + str (c)))
 
 # save model
-path = ".\\pretrained\\"
+path = "./pretrained"
 if not os.path.isdir (path):
 	os.mkdir (path)
 torch.save(model.state_dict(), path)
