@@ -4,6 +4,7 @@
 # Can classify objects into 1000 categories, and has 18 layers
 # Going to just train the final layer
 # This will fine-tune the network for a specific task
+# Using the CIFAR10 dataset for those 10 classes
 
 import torch
 import torch.nn as nn
@@ -23,8 +24,8 @@ device = torch.device ("cuda" if torch.cuda.is_available () else "cpu")
 input_size = (32 * 32)
 filter = 5
 pool = 2
-number_of_classes = 2
-epochs = 10
+number_of_classes = 10
+epochs = 60
 batch_size = 4
 lr = 0.0001
 
@@ -35,11 +36,11 @@ lr = 0.0001
 
 transform = transforms.Compose ([transforms.ToTensor (), transforms.Normalize ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-train_dataset = datasets.ImageFolder (root = "./data", train = True,
-	transform = transform, download = False)
+train_dataset = datasets.CIFAR10 (root = "./data", train = True,
+	transform = transform, download = True)
 
-test_dataset = torchvision.datasets.CIFAR10 (root = "./data", train = False,
-	transform = transform, download = False)
+test_dataset = datasets.CIFAR10 (root = "./data", train = False,
+	transform = transform, download = True)
 
 train_loader = torch.utils.data.DataLoader (dataset = train_dataset, batch_size = batch_size,
 	shuffle = True)
@@ -76,18 +77,32 @@ class ConvNet (nn.Module):
 		out = self.l3 (out)
 		return out
 
-model = ConvNet (conv = filter, pool = pool, classes = number_of_classes, batch_size = batch_size)
+#model = ConvNet (conv = filter, pool = pool, classes = number_of_classes, batch_size = batch_size)
+# Using transfer learning instead
+model = models.resnet18 (pretrained = True)
+"""
+# There is also a second option for transfer learning that involves freezing all model weights save the final or some of the final FC layers
+for par in model.parameters ():
+	# Set the requires_grad flag to False for all carried over weights to prevent these from updating further
+	par.requires_grad = False
+"""
+# Getting number of input features for the final layer that will be the fine-tuning layer
+nf = model.fc.in_features
+# Re-initialize to get new fine-tuned FC layer
+model.fc = nn.Linear (nf, number_of_classes)
 criterion = None
 if number_of_classes > 2:
 	criterion = nn.CrossEntropyLoss ()
 else:
 	criterion = nn.BCELoss ()
 opt = torch.optim.Adam (model.parameters (), lr = lr)
+s_lr_s = lr_scheduler.StepLR (opt, step_size = 10, gamma = 0.25)
 
 # loop
 steps = len (train_loader)
 model = model.to (device)
 for epoch in range (epochs):
+	print (str ("Starting epoch " + str (epoch)))
 	for i, (images, labels) in enumerate (train_loader):
 		images = images.to (device)
 		labels = labels.to (device)
@@ -96,6 +111,9 @@ for epoch in range (epochs):
 		opt.zero_grad ()
 		loss.backward ()
 		opt.step ()
+		s_lr_s.step ()
+		# Will print out a single training loss for batch per epoch, since CIFAR10 has 50k training images, the batch size is 4, and this prints out one loss per 10k steps
+		# 10k training steps in this instance covers 40k images
 		if ((i + 1) % 10000) == 0:
 			print (loss.item ())
 
@@ -131,7 +149,7 @@ with torch.no_grad ():
 		print (str ("Final class " + str (i) + " testing accuracy = " + str (c)))
 
 # save model
-path = "./pretrained"
+path = "C:\\Projects\\Torch-and-DL-Tutorials\\pretrained\\"
 if not os.path.isdir (path):
 	os.mkdir (path)
 torch.save(model.state_dict(), path)
