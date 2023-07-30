@@ -1,10 +1,10 @@
 # Example of using transfer learning with a CNN to get better results with less data and less training time/resources
-# Going to simply fine tune the last few layers of an already trained CNN
+# Going to simply fine tune the last layer and first convolution of a pretrained CNN
 # Example using the resnet 18 CNN
 # Can classify objects into 1000 categories, and has 18 layers
-# Going to just train the final layer
+# Going to just reset the final layer and change the first convolution operation
 # This will fine-tune the network for a specific task
-# Using the CIFAR10 dataset for those 10 classes
+# Using the STL10 dataset for those 10 classes
 
 import torch
 import torch.nn as nn
@@ -17,30 +17,53 @@ import matplotlib.pyplot as plt
 import time
 import copy
 import os
+import sys
 
 device = torch.device ("cuda" if torch.cuda.is_available () else "cpu")
 #device = "cpu"
 
-input_size = (32 * 32)
+input_size = (96 * 96)
 filter = 5
-pool = 2
+pool = 3
 number_of_classes = 10
 epochs = 60
 batch_size = 4
-lr = 0.0001
+lr = 0.00005
 
 # output image size formula for first convolution
-# (input_dim - filter_size + padding) / stride_length + 1
+# ((input_dim - filter_size + (2 * padding)) / stride_length) + 1
 # formula for affect on image shape for first pooling operation
 # first_conv_output_dim / pool_dim
+# calculate for resnet
+# out_d = ((224 - 7 + (2 * 3)) / 2) + 1
+# out_d = 112
+# If the result is not a whole number, torch will round the out_d down
+# With 96 * 96 images from STL10
+# out_d = ((96 - 5 + (2 * 10)) / 1) + 1
+# out_d = 112
+# Need this equation to come out to 112 for 96 in_d
+# 112 = ((96 - 5 + (2 * 10)) / 1) + 1
+# So if just the first convolutional layer is changed the rest of the convolutions and pooling should be able to work
+# filter = 5
+# padding = 10
+# stride = 1
 
-transform = transforms.Compose ([transforms.ToTensor (), transforms.Normalize ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+# Other option is to change pooling
+# Formula for pooling layers is also given here because this is important for working with different datasets with different input sizes
+# Resnet18 is trained with 3 channel 224 * 224 images from ImageNet, but STL10 uses 3 channel 96 * 96 images
+# So the first max pooling layer needs to be adapted to compinsate for this dimensional difference
+# out_d = ((in_d - filter) / stride) + 1
+# So to accomidate 96 the stride and filter must be changed
+# First max pooling for resnet18 in_d = 112
 
-train_dataset = datasets.CIFAR10 (root = "./data", train = True,
-	transform = transform, download = True)
+#transform = transforms.Compose ([transforms.ToTensor (), transforms.Normalize ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+transform = transforms.ToTensor ()
 
-test_dataset = datasets.CIFAR10 (root = "./data", train = False,
-	transform = transform, download = True)
+train_dataset = datasets.STL10 (root = "E:\\datasets", split = "train",
+	transform = transform, download = False)
+
+test_dataset = datasets.STL10 (root = "E:\\datasets", split = "test",
+	transform = transform, download = False)
 
 train_loader = torch.utils.data.DataLoader (dataset = train_dataset, batch_size = batch_size,
 	shuffle = True)
@@ -50,11 +73,18 @@ test_loader = torch.utils.data.DataLoader (dataset = test_dataset, batch_size = 
 
 examples = iter (train_loader)
 samples, labels = next (examples)
+print (type (samples))
+print (type (labels))
+print ("sample dimensions")
+print (samples.dim ())
+print ("label dimensions")
+print (labels.dim ())
 
 for i in range (4):
 	plt.subplot (2, 2, (i + 1))
 	plt.imshow (samples [i] [0])
-#plt.show ()
+plt.show ()
+
 
 class ConvNet (nn.Module):
 
@@ -79,13 +109,16 @@ class ConvNet (nn.Module):
 
 #model = ConvNet (conv = filter, pool = pool, classes = number_of_classes, batch_size = batch_size)
 # Using transfer learning instead
-model = models.resnet18 (pretrained = True)
+model = models.resnet18 (weights = "IMAGENET1K_V1")
+#print (model)
 """
 # There is also a second option for transfer learning that involves freezing all model weights save the final or some of the final FC layers
 for par in model.parameters ():
 	# Set the requires_grad flag to False for all carried over weights to prevent these from updating further
 	par.requires_grad = False
 """
+# Changing first convolution in order to adapt this model to the STL10 dataset that uses 96 x 96 images
+model.conv1 = nn.Conv2d (3, 64, kernel_size = (5, 5), stride = (1, 1), padding = (10, 10), bias = False)
 # Getting number of input features for the final layer that will be the fine-tuning layer
 nf = model.fc.in_features
 # Re-initialize to get new fine-tuned FC layer
@@ -114,7 +147,7 @@ for epoch in range (epochs):
 		s_lr_s.step ()
 		# Will print out a single training loss for batch per epoch, since CIFAR10 has 50k training images, the batch size is 4, and this prints out one loss per 10k steps
 		# 10k training steps in this instance covers 40k images
-		if ((i + 1) % 10000) == 0:
+		if ((i + 1) % 500) == 0:
 			print (loss.item ())
 
 # Testing
@@ -152,5 +185,6 @@ with torch.no_grad ():
 path = "C:\\Projects\\Torch-and-DL-Tutorials\\pretrained\\"
 if not os.path.isdir (path):
 	os.mkdir (path)
+path += "kingdom_classifier.pt"
 torch.save(model.state_dict(), path)
 print ("DONE !!!")
