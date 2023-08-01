@@ -27,8 +27,11 @@ filter = 5
 pool = 3
 number_of_classes = 10
 epochs = 60
-batch_size = 4
-lr = 0.00005
+# Increasing batch size to help with batch normalization
+# Learning may be far too slow without large batch sizes since resnet18 uses several batch norm layers
+# At least 100 images per batch should be ok
+batch_size = 200
+lr = 0.001
 
 # output image size formula for first convolution
 # ((input_dim - filter_size + (2 * padding)) / stride_length) + 1
@@ -47,6 +50,12 @@ lr = 0.00005
 # filter = 5
 # padding = 10
 # stride = 1
+# Try second set of first conv params
+# filter = 3
+# padding = 8
+# stride = 1
+# out_d = ((96 - 3 + (2 * 8)) / 1) + 1
+# out_d = 110
 
 # Other option is to change pooling
 # Formula for pooling layers is also given here because this is important for working with different datasets with different input sizes
@@ -55,9 +64,20 @@ lr = 0.00005
 # out_d = ((in_d - filter) / stride) + 1
 # So to accomidate 96 the stride and filter must be changed
 # First max pooling for resnet18 in_d = 112
+# calculating dims after first max pooling
+# out_d = ((112 - 3 + (2 * 1)) / 2) + 1
+# out_d = 56.5
+# Try changing params for first max pooling layer
+# filter = 2
+# padding = 1
+# stride = 2
+# out_d = ((110 - 2 + (2 * 1)) / 2) + 1
+# out_d = 56.0
+# Rounds down
+# This works and more gradually gets the number of features to match
 
-#transform = transforms.Compose ([transforms.ToTensor (), transforms.Normalize ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-transform = transforms.ToTensor ()
+transform = transforms.Compose ([transforms.ToTensor (), transforms.Normalize ((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+#transform = transforms.ToTensor ()
 
 train_dataset = datasets.STL10 (root = "E:\\datasets", split = "train",
 	transform = transform, download = False)
@@ -111,6 +131,7 @@ class ConvNet (nn.Module):
 # Using transfer learning instead
 model = models.resnet18 (weights = "IMAGENET1K_V1")
 #print (model)
+#sys.exit ()
 """
 # There is also a second option for transfer learning that involves freezing all model weights save the final or some of the final FC layers
 for par in model.parameters ():
@@ -118,7 +139,9 @@ for par in model.parameters ():
 	par.requires_grad = False
 """
 # Changing first convolution in order to adapt this model to the STL10 dataset that uses 96 x 96 images
-model.conv1 = nn.Conv2d (3, 64, kernel_size = (5, 5), stride = (1, 1), padding = (10, 10), bias = False)
+model.conv1 = nn.Conv2d (3, 64, kernel_size = (3, 3), stride = (1, 1), padding = (8, 8), bias = False)
+# Changing first max pooling layer
+model.maxpool = nn.MaxPool2d (kernel_size = 2, stride = 2, padding = 1, dilation = 1, ceil_mode = False)
 # Getting number of input features for the final layer that will be the fine-tuning layer
 nf = model.fc.in_features
 # Re-initialize to get new fine-tuned FC layer
@@ -134,6 +157,9 @@ s_lr_s = lr_scheduler.StepLR (opt, step_size = 10, gamma = 0.25)
 # loop
 steps = len (train_loader)
 model = model.to (device)
+rl = 0.0
+rc = 0
+every_n_steps = 5
 for epoch in range (epochs):
 	print (str ("Starting epoch " + str (epoch)))
 	for i, (images, labels) in enumerate (train_loader):
@@ -145,10 +171,17 @@ for epoch in range (epochs):
 		loss.backward ()
 		opt.step ()
 		s_lr_s.step ()
+		# Code for calculating better training report metrics
+		rl += loss.item ()
+		_, predicted = torch.max (outputs.data, 1)
+		rc += (labels == predicted).sum ().item ()
 		# Will print out a single training loss for batch per epoch, since CIFAR10 has 50k training images, the batch size is 4, and this prints out one loss per 10k steps
 		# 10k training steps in this instance covers 40k images
-		if ((i + 1) % 500) == 0:
-			print (loss.item ())
+		if ((i + 1) % every_n_steps) == 0:
+			print (str ("LOSS \t" + str (rl / every_n_steps)))
+			print (str ("ACCURACY \t" + str ((rc / (every_n_steps * batch_size)) * 100)))
+			rl = 0.0
+			rc = 0
 
 # Testing
 with torch.no_grad ():
