@@ -2,9 +2,16 @@ import torch
 import torch.nn as nn
 
 """
-Most complicated part of the deep transformer
+Fully implements the transformer with both encoder and decoder
+Has detailed comments in order to explain the architecture and what the Pytorch code is doing
+This file can be imported in to serve as the model implementation of a transformer for running experiments or training deployable models with Pytorch
+Most complicated part of the deep transformer is the self attention mechanism
 The self attention mechanism that allows the model to optimize what information to weight when examining context
 This way a large transformer can have affectively limitless access to cross textual context by making larger and larger transformer models
+Is key for solving sequential deep learning problems such as NLP
+Will be adding examples on how to train and deploy this model type
+Will need some text examples and a vocabulary
+The encoder and decoder classes can also be used separately
 """
 
 class SelfAttention (nn.module):
@@ -98,4 +105,196 @@ class TransformerBlock (nn.Module):
 
 	# Forward method
 	def forward (value, key, query, mask):
-		
+		attention = self.attention (value, key, query, mask)
+		# Perform dropout on the attention output concatinated with the query
+		# The concatination with the query is a skip connection
+		x = self.drop_out (self.n1 (attention + query))
+		forward = self.ff (x)
+		# Second drop-out and skip connection with the output from the first layer normalization
+		out = self.drop_out (self.n2 (forward + x))
+		# This completes the attention block
+		return out
+
+# Now take the attention block to create encoder and decoder classes
+
+class TransformerEncoder (nn.Module):
+
+	def __init__ (self,
+		vocab_size,
+		emb_size,
+		layers,
+		heads,
+		device,
+		f_expansion,
+		drop_out,
+		max_length):
+		super (TransformerEncoder, self).__init__ ()
+		self.emb_size = emb_size
+		# The vocabulary is mapped onto the allowable embedding space size
+		# Pytorch has the nn.Embedding module that can handle mapping sequential text data of a certain vocab size onto an embedding space of certain size
+		self.word_emb = nn.Embedding (vocab_size, emb_size)
+		self.device = device
+		# Now for setting up the module to map position embeddings for tokens
+		self.position_emb = nn.Embedding (max_length, emb_size)
+		self.layers = nn.ModuleList ([
+			TransformerBlock (emb_size, heads, drop_out = drop_out,
+				f_expansion = f_expansion)])
+		self.drop_out = nn.Dropout (drop_out)
+
+	def forward (self, x, mask):
+		n, seq_len = x.shape
+		# Get the tensor of the token positions
+		positions = torch.arange (0, seq_len).expand (n, seq_len).to (self.device)
+		# Now do concatination of the word embedding with the positions embedding for that word
+		# Then perform dropout on this concatinated embedding to get a result
+		# This allows the model to learn the patterens in which individual words appear in the type of text the model is trained on
+		out = self.drop_out (self.word_emb (x) + self.position_emb (positions))
+		# Now loop through and run the attention layers
+		for layer in self.layers:
+			# Since this is an encoder the value, key, and query are all the same embedding output with drop_out applied to it
+			# One layer passes its output to the next layer as that attention layers value, key, and query
+			out = layer (out, out, out, mask)
+		return out
+
+# Now for the transformer decoder network
+# Must have the decoder block module first
+
+class DecoderTransformerBlock (nn.Module):
+
+	def __init__ (self,
+		emb_size,
+		heads,
+		f_expansion,
+		drop_out,
+		device):
+		super (DecoderTransformerBlock, self).__init__ ()
+		self.attention = SelfAttention (emb_size, heads)
+		# Decoder block adds one extra layer normalization layer
+		self.n = nn.LayerNorm (emb_size)
+		# Also contains a regular transformer block
+		self.tb = TransformerBlock (emb_size, heads, drop_out, f_expansion)
+		# Decoder also has an added drop-out layer
+		self.drop_out = nn.Dropout (drop_out)
+
+	# Difference here is that there is both a source and a target mask, and no query used
+	def forward (self, x, value, key, s_mask, t_mask):
+		# The target mask is mandatory for padding variable length inputs
+		# The source mask is optional for preventing unnecessary computations for values that are padded
+		# Model will not work without the target mask, but without a source mask the model will just run a lot less efficiently
+		# Just like with regular transformer block you get the attention first
+		# The mask used here is the target mask for ensuring the correct padding is used for calculating the self-attention
+		attention = self.attention (x, x, x, t_mask)
+		# The query is here derived using the drop-out of the layer normalization of the attention with the skip-connection of the input
+		query = self.drop_out (self.n (attention + x))
+		# Now the regular transformer block is run last
+		# This is where the optional source mask is used
+		out = self.tb (value, key, query, s_mask)
+		return out
+
+class TransformerDecoder (nn.Module):
+
+	def __init__ (self,
+		vocab_size,
+		emb_size,
+		layers,
+		heads,
+		device,
+		f_expansion,
+		drop_out,
+		max_length):
+		super (TransformerDecoder, self).__init__ ()
+		self.emb_size = emb_size
+		self.word_emb = nn.Embedding (vocab_size, emb_size)
+		self.device = device
+		# Now for setting up the module to map position embeddings for tokens
+		self.position_emb = nn.Embedding (max_length, emb_size)
+		self.layers = nn.ModuleList ([
+			DecoderTransformerBlock (emb_size, heads, drop_out = drop_out,
+				f_expansion = f_expansion, device = device)
+			for _ in range (layers)])
+		# The decoder has an added fully-connected output layer
+		# Will take an embedding tensor as input and produce a vocab token as output
+		self.fc = nn.Linear (emb_size, vocab_size)
+		self.drop_out = nn.Dropout (drop_out)
+
+	# Takes an input from the encoder
+	def forward (self, x, encoder_out, s_mask, t_mask):
+		n, seq_len = x.shape
+		positions = torch.arange (0, seq_len).expand (n, seq_len).to (self.device)
+		x = self.drop_out (self.word_emb (x) + self.position_emb (positions))
+		for layer in self.layers:
+			# Since this is a decoder the key and query are the output from the encoder
+			# It also takes as input the source and target masks
+			# x becomes the output of a layer, and becomes the value input to the next layer
+			# Maybe the most mistifying detail of cutting edge deep learning
+			x = layer (x, encoder_out, encoder_out, s_mask, t_mask)
+		# The actual final output is the fully-connected output result of the x output of the final decoder transformer layer
+		# This embedding that is output is the decoder's prediction of the next token that should come next based on the text input to the decoder
+		# And based on what type of text and vocabulary the decoder has been trained on
+		out = self.fc (x)
+		return out
+
+# Now putting all these classes together into a full transformer
+
+class Transformer (nn.Module):
+
+	def __init__ (self,
+		source_vocab_s,
+		target_vocab_s,
+		source_pad_idx,
+		target_pad_idx,
+		embed_s = 256,
+		layers = 3,
+		f_expansion = 4,
+		heads = 6,
+		drop_out = 0,
+		device = "cuda",
+		max_length = 128):
+		super (Transformer, self).__init__ ()
+		self.encoder = TransformerEncoder (
+			source_vocab_s,
+			embed_s,
+			layers,
+			heads,
+			device,
+			f_expansion,
+			drop_out,
+			max_length)
+		self.decoder = TransformerDecoder (
+			target_vocab_s,
+			embed_s,
+			layers,
+			heads,
+			device,
+			f_expansion,
+			drop_out,
+			max_length)
+		# Padding indicies for calculating the masks
+		self.spi = source_pad_idx
+		self.tpi = target_pad_idx
+		self.device = device
+
+	# Method for calculating the source mask
+	def source_mask (self, source):
+		# The two unsqueeze calls here are to reshape the tensor to dimensions n, 1, 1, source length
+		mask = (source != self.spi).unsqueeze (1).unsqueeze (2)
+		return mask.to (self.device)
+
+	# Method for calculating the source mask
+	def target_mask (self, target):
+		n, target_len = target.shape
+		# Produces a lower triangular matrix for the target mask
+		# Is expanded in order to produce a triangular matrix mask for each example
+		mask = torch.tril (torch.ones (target_len, target_len)).expand (n, 1, target_len, target_len)
+		return mask.to (self.device)
+
+	def forward (self, source, target):
+		source_mask = self.source_mask (source)
+		target_mask = self.target_mask (target)
+		# The encoder part simply encodes the source tokens using attention mechanism
+		encoded_source = self.encoder (source, source_mask)
+		# The decoder part takes the target and the encoded source in order to predict the next target
+		out = self.decoder (target, encoded_source, source_mask, target_mask)
+		return out
+
+# EOF
